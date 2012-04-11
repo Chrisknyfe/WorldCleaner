@@ -168,7 +168,6 @@ print "-------------------"
 # determine which chunks are relevant
 chunkRelevance = {}
 chunksProcessed = 0
-chunksDeepSearched = 0
 
 print "Determining number of chunks in dimension..."
 allChunks = list( dim.allChunks )
@@ -182,19 +181,14 @@ for pos in allChunks:
     if pos not in chunkRelevance:
         chunk = dim.getChunk( pos[0], pos[1] );
         chunkRelevance[pos] = isChunkRelevant( chunk )
-        chunksDeepSearched += 1
-        # all chunks within the radius are also relevant.
-        if chunkRelevance[pos]:
-            for x in xrange( pos[0] - radius, pos[0] + radius + 1 ):
-                for z in xrange( pos[1] - radius, pos[1] + radius + 1):
-                    chunkRelevance[(x,z)] = True
+        
     else:
         print pos, "was in chunkRelevance."
     
     # Status report, griff!
     if chunksProcessed % 64 == 0:
         curtime = time.time()
-        print float(chunksProcessed) / float(totalChunks), "% complete,", chunksDeepSearched, "searched,", str( curtime - starttime )
+        print float(chunksProcessed) / float(totalChunks), "% complete,", str( curtime - starttime )
     
     chunksProcessed += 1
     
@@ -202,61 +196,68 @@ for pos in allChunks:
     assert( not chunk.dirty )
     chunk.unload() 
     assert( not chunk.isLoaded() )
-    if chunksDeepSearched % chunksToCleanUpAfter == 0:
+    if chunksProcessed % chunksToCleanUpAfter == 0:
         print "Cleaning memory..."
         dim.close()
         dim.preloadChunkPositions()
      
     
-print "Chunk relevance complete. Processed", chunksProcessed, "chunks. Deep-searched", chunksDeepSearched, "chunks."
+print "Chunk relevance complete. Processed", chunksProcessed, "chunks."
 
 chunksProcessed = 0
 # delete irrelevant chunks
 for pos, relevant in chunkRelevance.items():
     if not relevant:
-        
+        # are there any relevant chunks in the radius?
+        radiusRelevant = False
+        for x in xrange( pos[0] - radius, pos[0] + radius + 1 ):
+            for z in xrange( pos[1] - radius, pos[1] + radius + 1):
+                if (x,z) in chunkRelevance:
+                    if chunkRelevance[(x,z)] == True:
+                        radiusRelevant = True
         
         #print "Deleting chunk at", pos
-        # IOErrors might happen if we're working too fast?
-        successful = False
-        while not successful:
-            try:
-                if dim.containsChunk( pos[0], pos[1] ):
-                    dim.deleteChunk( pos[0], pos[1] )
-                successful = True
-            except IOError as (errno, strerror):
-                print "I/O error({0}): {1}".format(errno, strerror)
-                time.sleep(0.25)
-        chunksProcessed += 1
-        
-        # status report
-        if chunksProcessed % 64 == 0:
-            curtime = time.time()
-            print float(chunksProcessed) / float(totalChunks), "% deleted,", str( curtime - starttime )
-
-        # Clean the dimension of unused memory
-        if chunksProcessed % chunksToCleanUpAfter == 0:
-            print "Cleaning memory..."
+        if not radiusRelevant:
             # IOErrors might happen if we're working too fast?
             successful = False
             while not successful:
                 try:
-                    dim.saveInPlace()
+                    if dim.containsChunk( pos[0], pos[1] ):
+                        dim.deleteChunk( pos[0], pos[1] )
                     successful = True
                 except IOError as (errno, strerror):
                     print "I/O error({0}): {1}".format(errno, strerror)
                     time.sleep(0.25)
-                    
-            dim.close()
-                    
-            successful = False
-            while not successful:
-                try:
-                    dim.preloadChunkPositions()
-                    successful = True
-                except IOError as (errno, strerror):
-                    print "I/O error({0}): {1}".format(errno, strerror)
-                    time.sleep(0.25)
+            chunksProcessed += 1
+        
+            # status report
+            if chunksProcessed % 64 == 0:
+                curtime = time.time()
+                print float(chunksProcessed) / float(totalChunks), "% deleted,", str( curtime - starttime )
+
+            # Clean the dimension of unused memory
+            if chunksProcessed % chunksToCleanUpAfter == 0:
+                print "Cleaning memory..."
+                # IOErrors might happen if we're working too fast?
+                successful = False
+                while not successful:
+                    try:
+                        dim.saveInPlace()
+                        successful = True
+                    except IOError as (errno, strerror):
+                        print "I/O error({0}): {1}".format(errno, strerror)
+                        time.sleep(0.25)
+                        
+                dim.close()
+                        
+                successful = False
+                while not successful:
+                    try:
+                        dim.preloadChunkPositions()
+                        successful = True
+                    except IOError as (errno, strerror):
+                        print "I/O error({0}): {1}".format(errno, strerror)
+                        time.sleep(0.25)
             
 
 print "Chunk Deletion complete. Deleted", chunksProcessed, "chunks (", float(chunksProcessed) / float(totalChunks), "% )"
