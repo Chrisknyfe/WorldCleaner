@@ -153,7 +153,7 @@ def isChunkRelevantSpaceworld ( chunk ):
     return False
     
 # We have to change our relevance function based on our world type
-isChunkRelevant = isChunkRelevantFlatworld
+isChunkRelevant = isChunkRelevantNoMineshafts
 
 ####### Main Code
 
@@ -168,6 +168,7 @@ print "-------------------"
 # determine which chunks are relevant
 chunkRelevance = {}
 chunksProcessed = 0
+chunksDeepSearched = 0
 
 print "Determining number of chunks in dimension..."
 allChunks = list( dim.allChunks )
@@ -181,6 +182,7 @@ for pos in allChunks:
     if pos not in chunkRelevance:
         chunk = dim.getChunk( pos[0], pos[1] );
         chunkRelevance[pos] = isChunkRelevant( chunk )
+        chunksDeepSearched += 1
         # all chunks within the radius are also relevant.
         if chunkRelevance[pos]:
             for x in xrange( pos[0] - radius, pos[0] + radius + 1 ):
@@ -192,7 +194,7 @@ for pos in allChunks:
     # Status report, griff!
     if chunksProcessed % 64 == 0:
         curtime = time.time()
-        print float(chunksProcessed) / float(totalChunks), "% complete,", str( curtime - starttime )
+        print float(chunksProcessed) / float(totalChunks), "% complete,", chunksDeepSearched, "searched,", str( curtime - starttime )
     
     chunksProcessed += 1
     
@@ -200,13 +202,13 @@ for pos in allChunks:
     assert( not chunk.dirty )
     chunk.unload() 
     assert( not chunk.isLoaded() )
-    if chunksProcessed % chunksToCleanUpAfter == 0:
+    if chunksDeepSearched % chunksToCleanUpAfter == 0:
         print "Cleaning memory..."
         dim.close()
         dim.preloadChunkPositions()
      
     
-print "Chunk relevance complete. Processed", chunksProcessed, "chunks."
+print "Chunk relevance complete. Processed", chunksProcessed, "chunks. Deep-searched", chunksDeepSearched, "chunks."
 
 chunksProcessed = 0
 # delete irrelevant chunks
