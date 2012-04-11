@@ -25,7 +25,7 @@ mats = world.materials
 chunksToCleanUpAfter = 8192 #3072
 
 # Radius around relevant chunks to keep
-radius = 3
+radius = 1
 
 # Level below which abandoned mineshafts will generate
 mineshaftLevel = 64
@@ -157,6 +157,35 @@ isChunkRelevant = isChunkRelevantNoMineshafts
 
 ####### Main Code
 
+#decorator for ioerrors
+def workaround_io_errors(fn):
+    def wrapped(*args):
+        successful = False
+        retval = None
+        while not successful:
+            try:
+                retval = fn(*args)
+                successful = True
+            except IOError as (errno, strerror):
+                print "I/O error({0}): {1}".format(errno, strerror)
+                time.sleep(0.25)
+        return retval
+    return wrapped
+    
+@workaround_io_errors
+def deleteChunk( x , z ):
+    if dim.containsChunk( pos[0], pos[1] ):
+        dim.deleteChunk( pos[0], pos[1] )
+       
+@workaround_io_errors 
+def saveDim():
+    dim.saveInPlace()
+    
+@workaround_io_errors 
+def preloadChunkPositions():
+    dim.preloadChunkPositions()
+    
+
 print "-------------------"
 print "World:", worldname
 print "Dimension:", dimensionNum
@@ -188,7 +217,7 @@ for pos in allChunks:
     # Status report, griff!
     if chunksProcessed % 64 == 0:
         curtime = time.time()
-        print float(chunksProcessed) / float(totalChunks), "% complete,", str( curtime - starttime )
+        print 100 * float(chunksProcessed) / float(totalChunks), "% complete,", str( curtime - starttime )
     
     chunksProcessed += 1
     
@@ -218,49 +247,22 @@ for pos, relevant in chunkRelevance.items():
         
         #print "Deleting chunk at", pos
         if not radiusRelevant:
-            # IOErrors might happen if we're working too fast?
-            successful = False
-            while not successful:
-                try:
-                    if dim.containsChunk( pos[0], pos[1] ):
-                        dim.deleteChunk( pos[0], pos[1] )
-                    successful = True
-                except IOError as (errno, strerror):
-                    print "I/O error({0}): {1}".format(errno, strerror)
-                    time.sleep(0.25)
+            deleteChunk( pos[0], pos[1] )
             chunksProcessed += 1
         
             # status report
             if chunksProcessed % 64 == 0:
                 curtime = time.time()
-                print float(chunksProcessed) / float(totalChunks), "% deleted,", str( curtime - starttime )
+                print 100 * float(chunksProcessed) / float(totalChunks), "% deleted,", str( curtime - starttime )
 
             # Clean the dimension of unused memory
             if chunksProcessed % chunksToCleanUpAfter == 0:
                 print "Cleaning memory..."
-                # IOErrors might happen if we're working too fast?
-                successful = False
-                while not successful:
-                    try:
-                        dim.saveInPlace()
-                        successful = True
-                    except IOError as (errno, strerror):
-                        print "I/O error({0}): {1}".format(errno, strerror)
-                        time.sleep(0.25)
-                        
-                dim.close()
-                        
-                successful = False
-                while not successful:
-                    try:
-                        dim.preloadChunkPositions()
-                        successful = True
-                    except IOError as (errno, strerror):
-                        print "I/O error({0}): {1}".format(errno, strerror)
-                        time.sleep(0.25)
-            
+                saveDim()        
+                dim.close() 
+                preloadChunkPositions()
 
-print "Chunk Deletion complete. Deleted", chunksProcessed, "chunks (", float(chunksProcessed) / float(totalChunks), "% )"
+print "Chunk Deletion complete. Deleted", chunksProcessed, "chunks (", 100 * float(chunksProcessed) / float(totalChunks), "% )"
 
 # save the world
 dim.saveInPlace()
