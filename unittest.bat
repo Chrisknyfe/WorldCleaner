@@ -1,13 +1,13 @@
 ' Test stuff!
 
-GOTO:SMALLSURVIVAL
+GOTO:NYLL
 
 :NYLL
 
 ' Nyll, the spaceworld.
 rmdir /s /q nyll-copy
 xcopy /E /I nyll nyll-copy
-worldcleaner.py -v -t SPACE nyll-copy
+worldcleaner.py -v -c 8192 -t SPACE nyll-copy
 
 GOTO:EOF
 :SKAIA

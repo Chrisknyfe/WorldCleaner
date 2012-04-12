@@ -2,7 +2,7 @@
 # requires numpy
 # requires pyyaml
 
-import os, sys, time
+import os, sys, time, pickle, signal
 from optparse import OptionParser
 
 
@@ -21,6 +21,8 @@ parser.add_option("-c", "--cleanup-interval", dest="chunksToCleanUpAfter", defau
                   help="NUMBER of chunks to clean up after (to save memory.) 1024 chunks ~= 288 MB.", metavar="NUMBER")
 parser.add_option("--reporting-interval", dest="chunksToReportAfter", default=256,
                   help="NUMBER of chunks to report progress after.", metavar="NUMBER")
+parser.add_option("--restart", action="store_true", dest="restart", 
+                  help="Restart chunk processing, not restoring progress from file.")
 parser.add_option("-q", "--quiet", action="store_true", dest="quiet",
                   help="Silence progress messages. Invalidates the -v or --verbose flags.")
 parser.add_option("-v", "--verbose", action="store_true", dest="verbose",
@@ -258,9 +260,12 @@ def workaround_io_errors(fn):
     return wrapped
     
 @workaround_io_errors
+# return true if chunk deleted
 def deleteChunk( x , z ):
     if dim.containsChunk( pos[0], pos[1] ):
         dim.deleteChunk( pos[0], pos[1] )
+        return True
+    return False
        
 @workaround_io_errors 
 def saveDim():
@@ -269,6 +274,30 @@ def saveDim():
 @workaround_io_errors 
 def preloadChunkPositions():
     dim.preloadChunkPositions()
+    
+# determine which chunks are relevant
+
+relevanceFileName = os.path.join(worldname, "relevance.p")
+@workaround_io_errors
+def loadRelevance():
+    if options.restart:
+        if not options.quiet: print "Force-restart from command line. Starting over."
+    elif os.path.isfile(relevanceFileName):
+        # we use a one second tolerance for determining relative age of the world and relevance function
+        if int(os.path.getmtime( relevanceFileName )) + 1 < int(os.path.getmtime( os.path.join( worldname, "level.dat"))):
+            if not options.quiet: print relevanceFileName, "older than the world itself. Starting over."
+        else:
+            try:
+                return pickle.load( open( relevanceFileName, "rb" ) )
+            except EOFError:
+                if not options.quiet: print "Corrupt", relevanceFileName + "," , " Starting over."
+    return {}
+
+@workaround_io_errors
+def saveRelevance( relevance ):
+    if options.verbose: print "Saving chunk relevance to", relevanceFileName
+    pickle.dump( relevance, open( relevanceFileName, "wb" ) )
+       
     
 if not options.quiet:
     print "-------------------"
@@ -281,9 +310,6 @@ if not options.quiet:
     print "Chunks to clean up after:", options.chunksToCleanUpAfter
     print "-------------------"
     
-# determine which chunks are relevant
-chunkRelevance = {}
-chunksProcessed = 0
 
 if options.verbose: print "Determining number of chunks in dimension..."
 allChunks = list( dim.allChunks )
@@ -298,6 +324,19 @@ def cmp_regions_first( ca, cb ):
         return cmp(ra, rb)
 allChunks.sort(cmp = cmp_regions_first )
 totalChunks = len( allChunks )
+chunkRelevance = loadRelevance()
+
+# Catch ctrl + c, save our chunk relevance
+def sigint_handler(signal, frame):
+    if not options.quiet: print "Script prematurely terminated, saving relevance..."
+    dim.close()
+    world.close()
+    saveRelevance( chunkRelevance )
+    exit(0)
+signal.signal(signal.SIGINT, sigint_handler)
+
+chunksProcessed = 0
+chunksDeepSearched = 0
 
 if options.verbose: print totalChunks, "chunks to process."
 if not options.quiet: print "Determining chunk relevance..."
@@ -307,35 +346,40 @@ for pos in allChunks:
     
     # only process the chunk if we haven't looked at it.
     if pos not in chunkRelevance:
-        chunk = dim.getChunk( pos[0], pos[1] );
-        chunkRelevance[pos] = isChunkRelevant( chunk )        
-    else:
-        print pos, "was in chunkRelevance."
+        chunk = dim.getChunk( pos[0], pos[1] )
+        chunkRelevance[pos] = isChunkRelevant( chunk )
+        chunksDeepSearched += 1
+        
+        # clean the chunk
+        assert( not chunk.dirty )
+        chunk.unload() 
+        assert( not chunk.isLoaded() )
+        # clean the dimension of unused memory
+        if chunksDeepSearched % options.chunksToCleanUpAfter == 0:
+            if options.verbose: print "Cleaning memory..."
+            dim.close()
+            preloadChunkPositions()
+            saveRelevance( chunkRelevance )
+        
+        # Status report, griff!
+        if not options.quiet and chunksDeepSearched % options.chunksToReportAfter == 0:
+            elapsed  = time.time() - starttime
+            percent = 100 * float(chunksProcessed) / float(totalChunks)
+            predicted = (elapsed) * float(totalChunks) / float( max(chunksProcessed, 1) )
+            remaining = predicted - elapsed
+            if options.verbose:
+                print '%.2f%% (%d) chunks processed (%d deep searched); %ds elapsed, %ds remaining (%d predicted)' % ( percent, chunksProcessed, chunksDeepSearched, elapsed , remaining, predicted )
+            elif not options.quiet:
+                print '%.2f%% chunks processed' % ( percent )
+        
     
-    # Status report, griff!
-    if not options.quiet and chunksProcessed % options.chunksToReportAfter == 0:
-        elapsed  = time.time() - starttime
-        percent = 100 * float(chunksProcessed) / float(totalChunks)
-        predicted = (elapsed) * float(totalChunks) / float( max(chunksProcessed, 1) )
-        remaining = predicted - elapsed
-        if options.verbose:
-            print '%.2f%% chunks processed (%d chunks); %ds elapsed, %ds remaining (%d predicted)' % ( percent, chunksProcessed, elapsed , remaining, predicted )
-        else:
-            print '%.2f%% chunks processed' % ( percent )
-    
-    chunksProcessed += 1
-    
-    # Clean the dimension of unused memory
-    assert( not chunk.dirty )
-    chunk.unload() 
-    assert( not chunk.isLoaded() )
-    if chunksProcessed % options.chunksToCleanUpAfter == 0:
-        if options.verbose: print "Cleaning memory..."
-        dim.close()
-        dim.preloadChunkPositions()
-     
+    chunksProcessed += 1   
+
+# save relevance!        
+saveRelevance( chunkRelevance )
+
 curtime = time.time()
-if options.verbose: print "Chunk relevance took", str( curtime - starttimeChunkRelevance ), "s."
+if options.verbose: print "Chunk relevance took", str( curtime - starttime ), "s."
 if options.verbose: print "Chunk relevance complete. Processed", chunksProcessed, "chunks."
 
 chunksProcessed = 0
@@ -353,30 +397,30 @@ for pos, relevant in chunkRelevance.items():
         
         #print "Deleting chunk at", pos
         if not radiusRelevant:
-            deleteChunk( pos[0], pos[1] )
-            chunksProcessed += 1
+            if deleteChunk( pos[0], pos[1] ):
+                chunksProcessed += 1
         
-            # status report
-            if not options.quiet and chunksProcessed % options.chunksToReportAfter == 0:
-                elapsed  = time.time() - starttime
-                percent = 100 * float(chunksProcessed) / float(totalChunks)
-                if options.verbose:
-                    print '%.2f%% chunks deleted (%d chunks); %ds elapsed' % ( percent, chunksProcessed, elapsed )
-                else:
-                    print '%.2f%% chunks deleted' % ( percent )
-                    
-
-            # Clean the dimension of unused memory
-            if chunksProcessed % options.chunksToCleanUpAfter == 0:
-                if options.verbose: print "Cleaning memory..."
-                saveDim()        
-                dim.close() 
-                preloadChunkPositions()
+                # status report
+                if not options.quiet and chunksProcessed % options.chunksToReportAfter == 0:
+                    elapsed  = time.time() - starttime
+                    percent = 100 * float(chunksProcessed) / float(totalChunks)
+                    if options.verbose:
+                        print '%.2f%% chunks deleted (%d chunks); %ds elapsed' % ( percent, chunksProcessed, elapsed )
+                    elif not options.quiet:
+                        print '%.2f%% chunks deleted' % ( percent )
+    
+                # Clean the dimension of unused memory
+                if chunksProcessed % options.chunksToCleanUpAfter == 0:
+                    if options.verbose: print "Cleaning memory..."
+                    saveDim()        
+                    dim.close() 
+                    preloadChunkPositions()
 
 if not options.quiet: print "Chunk Deletion complete."
 if options.verbose: print "Deleted", chunksProcessed, "chunks (", 100 * float(chunksProcessed) / float(totalChunks), "% )"
 
 # you saved the world!
 saveDim()
+saveRelevance( chunkRelevance )
 endtime = time.time()
-print "worldcleaner took %ds" % (endtime-starttime)
+if not options.quiet: print "worldcleaner took %ds" % (endtime-starttime)
