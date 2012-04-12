@@ -254,7 +254,7 @@ def workaround_io_errors(fn):
                 retval = fn(*args)
                 successful = True
             except IOError as (errno, strerror):
-                print "I/O error({0}): {1}".format(errno, strerror)
+                if options.verbose: print "I/O error({0}): {1}".format(errno, strerror)
                 time.sleep(0.25)
         return retval
     return wrapped
@@ -324,6 +324,10 @@ def cmp_regions_first( ca, cb ):
         return cmp(ra, rb)
 allChunks.sort(cmp = cmp_regions_first )
 totalChunks = len( allChunks )
+
+if totalChunks == 0:
+    usageexit("No chunks to process! Did you pick the correct dimension using -d?")
+
 chunkRelevance = loadRelevance()
 
 # Catch ctrl + c, save our chunk relevance
