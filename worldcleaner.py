@@ -15,20 +15,26 @@ starttime = time.time()
 dimensionNum = 0
 
 # Name of the world to open
-worldname = "creative"
+worldname = "nyll"
 world = pymclevel.fromFile(worldname)
 dim = world.getDimension(dimensionNum)
 mats = world.materials
 
 # Number of chunks to process before cleaning memory
 # 1024 chunks ~= 288 MB
-chunksToCleanUpAfter = 8192 #3072
+chunksToCleanUpAfter = 3072 #3072
 
 # Radius around relevant chunks to keep
-radius = 1
+radius = 0
 
 # Level below which abandoned mineshafts will generate
-mineshaftLevel = 64
+mineshaftHeight = 64
+
+# Level of maximum chunk generator height
+chunkgenHeight = 128
+
+# Level of flatworld height
+flatworldHeight = 4
 
 # Lists of relevant blocks:
 # blocks that are always relevant
@@ -107,53 +113,74 @@ mineshaftBlocks = set([ mats.Rail.ID,
                         mats.Fence.ID,
                         mats.WoodenStairs.ID ])
                         
-# blocks that flatworlds are made of
+# blocks that the nether is made of
+netherBlocks = set([ mats.Netherrack.ID ])                        
+                        
+# blocks that flatworlds are made of (set of non-relevant blocks.)
 flatworldBlocks = set([ mats.Air.ID,
                         mats.Grass.ID,
                         mats.Dirt.ID,
                         mats.Stone.ID,
                         mats.Bedrock.ID ])
 
+# Relevant blocks to survival, excluding mineshafts.
+relevantBlocksSurvival = relevantBlocks | netherBlocks
 
 # All of these blocks should be relevant above mineshaft level.
-relevantBlocksAboveMineshaftLevel = relevantBlocks | mineshaftBlocks
+relevantBlocksIncludingMineshafts = relevantBlocksSurvival | mineshaftBlocks
+
                         
 
 ######## Subroutines (based on world type)
 
 # For survival worlds. Villages and strongholds will be kept, mineshafts will not be.
 def isChunkRelevantNoMineshafts ( chunk ):
-    for voxel in chunk.Blocks[ :, :, 0:mineshaftLevel ].flat:
-        if voxel in relevantBlocks:
+    # keep anything above chunk generator's max height
+    for height in chunk.HeightMap.flat:
+        if height >= chunkgenHeight:
             return True
-    for voxel in chunk.Blocks[ :, :, mineshaftLevel: ].flat:
-        if voxel in relevantBlocksAboveMineshaftLevel: 
+    # keep relevant blocks above mineshaft height (including torches, wood, etc.)
+    for voxel in chunk.Blocks[ :, :, mineshaftHeight:chunkgenHeight ].flat:
+        if voxel in relevantBlocksIncludingMineshafts: 
+            return True
+    # ignore mineshafts below a certain level
+    for voxel in chunk.Blocks[ :, :, 0:mineshaftHeight ].flat:
+        if voxel in relevantBlocksSurvival:
             return True
     return False
 
 # For creative flatworlds.     
 def isChunkRelevantFlatworld ( chunk ):
-    for voxel in chunk.Blocks.flat:
+    # keep anything above chunk generator's max height
+    for height in chunk.HeightMap.flat:
+        if height >= flatworldHeight:
+            return True
+    #check for relevant blocks below the generator's height
+    for voxel in chunk.Blocks[ :, :, 0:flatworldHeight ].flat:
         if voxel not in flatworldBlocks: 
             return True
     return False
     
 # For skylands.     
 def isChunkRelevantSkylands ( chunk ):
-    for voxel in chunk.Blocks.flat:
-        if voxel in relevantBlocksAboveMineshaftLevel: 
+    # keep anything above chunk generator's max height
+    for height in chunk.HeightMap.flat:
+        if height >= chunkgenHeight:
+            return True
+    for voxel in chunk.Blocks[ :, :, 0:chunkgenHeight ].flat:
+        if voxel in relevantBlocksIncludingMineshafts: 
             return True
     return False
 
 # For empty space worlds
 def isChunkRelevantSpaceworld ( chunk ):
-    for voxel in chunk.Blocks.flat:
-        if voxel != 0: 
+    for height in chunk.HeightMap.flat:
+        if height != 0:
             return True
     return False
     
 # We have to change our relevance function based on our world type
-isChunkRelevant = isChunkRelevantNoMineshafts
+isChunkRelevant = isChunkRelevantSpaceworld
 
 ####### Main Code
 
@@ -200,10 +227,22 @@ chunksProcessed = 0
 
 print "Determining number of chunks in dimension..."
 allChunks = list( dim.allChunks )
+
+#sort chunks by region, to minimize file access.
+def cmp_regions_first( ca, cb ):
+    ra = ( ca[0] / 32, ca[1] / 32 )
+    rb = ( cb[0] / 32, cb[1] / 32 )
+    if ra == rb:
+        return cmp(ca, cb)
+    else:
+        return cmp(ra, rb)
+allChunks.sort(cmp = cmp_regions_first )
 totalChunks = len( allChunks )
+#print allChunks
 print totalChunks
 
 print "Determining chunk relevance..."
+starttimeChunkRelevance = time.time()
 for pos in allChunks:
     
     # only process the chunk if we haven't looked at it.
@@ -230,7 +269,8 @@ for pos in allChunks:
         dim.close()
         dim.preloadChunkPositions()
      
-    
+curtime = time.time()
+print "Chunk relevance took", str( curtime - starttimeChunkRelevance ), "s."
 print "Chunk relevance complete. Processed", chunksProcessed, "chunks."
 
 chunksProcessed = 0
