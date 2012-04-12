@@ -6,7 +6,6 @@ import os, sys, time
 from optparse import OptionParser
 
 
-starttime = time.time()
 
 ######## CLI
 parser = OptionParser(usage="usage: %prog [options] worldfolder")
@@ -16,6 +15,8 @@ parser.add_option("-r", "--radius", dest="radius", default=0,
                   help="NUMBER of chunks around relevant chunks to keep", metavar="NUMBER")
 parser.add_option("-t", "--world-type", dest="worldtype", default="NORMAL",
                   help="TYPE of world to scan. Choices are NORMAL, FLAT, NETHER, END, SPACE, SKYLANDS, and CUSTOM. ", metavar="TYPE")
+parser.add_option("--flat-height", dest="flatworldHeight", default=4,
+                  help="HEIGHT of the superflat generator's terrain (default 4)", metavar="HEIGHT")
 parser.add_option("-c", "--cleanup-interval", dest="chunksToCleanUpAfter", default=4096,
                   help="NUMBER of chunks to clean up after (to save memory.) 1024 chunks ~= 288 MB.", metavar="NUMBER")
 parser.add_option("--reporting-interval", dest="chunksToReportAfter", default=256,
@@ -36,6 +37,9 @@ if len(args) != 1:
     usageexit( "Please only specify one argument, the world name." )
     
 if options.quiet: options.verbose = False
+options.chunksToCleanUpAfter = int(options.chunksToCleanUpAfter)
+options.chunksToReportAfter = int(options.chunksToReportAfter)
+options.flatworldHeight = int(options.flatworldHeight)
 
 if not options.quiet: print "-- World Cleaner -- by Chrisknyfe"
 
@@ -54,8 +58,8 @@ mineshaftHeight = 64
 # Level of maximum chunk generator height
 chunkgenHeight = 128
 
-# Level of flatworld height
-flatworldHeight = 4
+# Chunk width / length. 
+chunksidelength = 16
 
 # Lists of relevant blocks:
 # blocks that are always relevant
@@ -154,16 +158,21 @@ relevantBlocksIncludingMineshafts = relevantBlocksSurvival | mineshaftBlocks
 
 ######## Subroutines (based on world type)
 
+#NOTE: HEIGHTMAP IS ORDERED Z, X. BLOCKS ORDERED X, Z, Y.
+
 # For survival worlds. Villages and strongholds will be kept, mineshafts will not be.
 def isChunkRelevantNoMineshafts ( chunk ):
     # keep anything above chunk generator's max height
     for height in chunk.HeightMap.flat:
-        if height >= chunkgenHeight:
+        if height > chunkgenHeight:
             return True
     # keep relevant blocks above mineshaft height (including torches, wood, etc.)
-    for voxel in chunk.Blocks[ :, :, mineshaftHeight:chunkgenHeight ].flat:
-        if voxel in relevantBlocksIncludingMineshafts: 
-            return True
+    # only go up to the column height
+    for x in xrange(chunksidelength):
+        for z in xrange(chunksidelength):
+            for voxel in chunk.Blocks[ x, z, mineshaftHeight:chunk.HeightMap[z,x] ]:
+                if voxel in relevantBlocksIncludingMineshafts: 
+                    return True
     # ignore mineshafts below a certain level
     for voxel in chunk.Blocks[ :, :, 0:mineshaftHeight ].flat:
         if voxel in relevantBlocksSurvival:
@@ -174,10 +183,10 @@ def isChunkRelevantNoMineshafts ( chunk ):
 def isChunkRelevantSuperflat ( chunk ):
     # keep anything above chunk generator's max height
     for height in chunk.HeightMap.flat:
-        if height >= flatworldHeight:
+        if height > options.flatworldHeight:
             return True
-    #check for relevant blocks below the generator's height
-    for voxel in chunk.Blocks[ :, :, 0:flatworldHeight ].flat:
+    # check for relevant blocks below the generator's height
+    for voxel in chunk.Blocks[ :, :, 0:options.flatworldHeight ].flat:
         if voxel not in flatworldBlocks: 
             return True
     return False
@@ -186,11 +195,14 @@ def isChunkRelevantSuperflat ( chunk ):
 def isChunkRelevantSkylands ( chunk ):
     # keep anything above chunk generator's max height
     for height in chunk.HeightMap.flat:
-        if height >= chunkgenHeight:
+        if height > chunkgenHeight:
             return True
-    for voxel in chunk.Blocks[ :, :, 0:chunkgenHeight ].flat:
-        if voxel in relevantBlocksIncludingMineshafts: 
-            return True
+    # iterate through columns, only going up to the column height.
+    for x in xrange(chunksidelength):
+        for z in xrange(chunksidelength):
+            for voxel in chunk.Blocks[ x, z, 0:chunk.HeightMap[z,x] ]:
+                if voxel in relevantBlocksIncludingMineshafts: 
+                    return True
     return False
 
 # For empty space worlds
@@ -262,6 +274,8 @@ if not options.quiet:
     print "-------------------"
     print "World:", worldname
     print "World Type:", options.worldtype
+    if options.worldtype == "flat":
+        print "Superflat Height:", options.flatworldHeight
     print "Dimension:", options.dimensionNum
     print "Radius:", options.radius
     print "Chunks to clean up after:", options.chunksToCleanUpAfter
@@ -284,16 +298,17 @@ def cmp_regions_first( ca, cb ):
         return cmp(ra, rb)
 allChunks.sort(cmp = cmp_regions_first )
 totalChunks = len( allChunks )
+
 if options.verbose: print totalChunks, "chunks to process."
 if not options.quiet: print "Determining chunk relevance..."
-starttimeChunkRelevance = time.time()
+
+starttime = time.time()
 for pos in allChunks:
     
     # only process the chunk if we haven't looked at it.
     if pos not in chunkRelevance:
         chunk = dim.getChunk( pos[0], pos[1] );
-        chunkRelevance[pos] = isChunkRelevant( chunk )
-        
+        chunkRelevance[pos] = isChunkRelevant( chunk )        
     else:
         print pos, "was in chunkRelevance."
     

@@ -1,4 +1,3 @@
-- Relevant chunk searching optimization using heightmap
 - Deleting completely irrelevant chunks on the fly.
 - Saving progress inside of the world folder, so that if you close the script it will restore your progress and continue
 - Iterator for chunks in radius (not including this chunk.)
