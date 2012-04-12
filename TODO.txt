@@ -1,9 +1,4 @@
 - Relevant chunk searching optimization using heightmap
 - Deleting completely irrelevant chunks on the fly.
 - Saving progress inside of the world folder, so that if you close the script it will restore your progress and continue
-- Command line arguments
-- Test how long it takes to load each chunk into memory when the list is sorted vs. when it's not sorted (use large world!)
-    - for creative world with sorted chunks: 612 s.
-    - for creative world without sorted chunks: predicting 583 s. (seems random to me... need to retest like 10 times)
-    - for creative world with region-sorted chunks:  630 s. (The fuck.)
 - Iterator for chunks in radius (not including this chunk.)

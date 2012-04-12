@@ -3,29 +3,50 @@
 # requires pyyaml
 
 import os, sys, time
-import pymclevel
+from optparse import OptionParser
 
 
 starttime = time.time()
 
+######## CLI
+parser = OptionParser(usage="usage: %prog [options] worldfolder")
+parser.add_option("-d", "--dimension", dest="dimensionNum", default=0,
+                  help="Dimension NUMBER of the world to clean", metavar="NUMBER")
+parser.add_option("-r", "--radius", dest="radius", default=0,
+                  help="NUMBER of chunks around relevant chunks to keep", metavar="NUMBER")
+parser.add_option("-t", "--world-type", dest="worldtype", default="NORMAL",
+                  help="TYPE of world to scan. Choices are NORMAL, FLAT, NETHER, END, SPACE, SKYLANDS, and CUSTOM. ", metavar="TYPE")
+parser.add_option("-c", "--cleanup-interval", dest="chunksToCleanUpAfter", default=4096,
+                  help="NUMBER of chunks to clean up after (to save memory.) 1024 chunks ~= 288 MB.", metavar="NUMBER")
+parser.add_option("--reporting-interval", dest="chunksToReportAfter", default=256,
+                  help="NUMBER of chunks to report progress after.", metavar="NUMBER")
+parser.add_option("-q", "--quiet", action="store_true", dest="quiet",
+                  help="Silence progress messages. Invalidates the -v or --verbose flags.")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose",
+                  help="Adds more debug messages.")
 
+def usageexit( message ):
+    print message
+    parser.print_help()
+    exit(1)
+                  
+(options, args) = parser.parse_args()
+
+if len(args) != 1:
+    usageexit( "Please only specify one argument, the world name." )
+    
+if options.quiet: options.verbose = False
+
+if not options.quiet: print "-- World Cleaner -- by Chrisknyfe"
+
+import pymclevel
 ######## Configuration
 
-# Dimension of the world to clean
-dimensionNum = 0
-
 # Name of the world to open
-worldname = "nyll"
+worldname = args[0]
 world = pymclevel.fromFile(worldname)
-dim = world.getDimension(dimensionNum)
+dim = world.getDimension(options.dimensionNum)
 mats = world.materials
-
-# Number of chunks to process before cleaning memory
-# 1024 chunks ~= 288 MB
-chunksToCleanUpAfter = 3072 #3072
-
-# Radius around relevant chunks to keep
-radius = 0
 
 # Level below which abandoned mineshafts will generate
 mineshaftHeight = 64
@@ -149,8 +170,8 @@ def isChunkRelevantNoMineshafts ( chunk ):
             return True
     return False
 
-# For creative flatworlds.     
-def isChunkRelevantFlatworld ( chunk ):
+# For superflat worlds.     
+def isChunkRelevantSuperflat ( chunk ):
     # keep anything above chunk generator's max height
     for height in chunk.HeightMap.flat:
         if height >= flatworldHeight:
@@ -179,8 +200,33 @@ def isChunkRelevantSpaceworld ( chunk ):
             return True
     return False
     
+# For the Nether
+def isChunkRelevantNether ( chunk ):
+    raise NotImplementedError("Nether cleaning has not been implemented yet!");
+    
+# For a custom terrain generator. Insert your own code here!
+def isChunkRelevantCustom ( chunk ):
+    raise NotImplementedError("Implement your own custom terrain generator!");
+    
 # We have to change our relevance function based on our world type
-isChunkRelevant = isChunkRelevantSpaceworld
+isChunkRelevant = None
+options.worldtype = options.worldtype.lower()
+
+if options.worldtype == "normal":
+    isChunkRelevant = isChunkRelevantNoMineshafts
+elif options.worldtype == "flat":
+    isChunkRelevant = isChunkRelevantSuperflat
+elif options.worldtype == "nether":
+    isChunkRelevant = isChunkRelevantNether
+elif options.worldtype == "end" or options.worldtype == "space":
+    isChunkRelevant = isChunkRelevantSpaceworld
+elif options.worldtype == "skylands":
+    isChunkRelevant = isChunkRelevantSkylands
+elif options.worldtype == "custom":
+    isChunkRelevant = isChunkRelevantCustom
+else:
+    usageexit ("World type %s not supported!" % (options.worldtype) )
+    
 
 ####### Main Code
 
@@ -212,20 +258,20 @@ def saveDim():
 def preloadChunkPositions():
     dim.preloadChunkPositions()
     
-
-print "-------------------"
-print "World:", worldname
-print "Dimension:", dimensionNum
-print "Radius:", radius
-print "chunksToCleanUpAfter:", chunksToCleanUpAfter
-print "Chunk Relevance Function:", isChunkRelevant.__name__
-print "-------------------"
+if not options.quiet:
+    print "-------------------"
+    print "World:", worldname
+    print "World Type:", options.worldtype
+    print "Dimension:", options.dimensionNum
+    print "Radius:", options.radius
+    print "Chunks to clean up after:", options.chunksToCleanUpAfter
+    print "-------------------"
     
 # determine which chunks are relevant
 chunkRelevance = {}
 chunksProcessed = 0
 
-print "Determining number of chunks in dimension..."
+if options.verbose: print "Determining number of chunks in dimension..."
 allChunks = list( dim.allChunks )
 
 #sort chunks by region, to minimize file access.
@@ -238,10 +284,8 @@ def cmp_regions_first( ca, cb ):
         return cmp(ra, rb)
 allChunks.sort(cmp = cmp_regions_first )
 totalChunks = len( allChunks )
-#print allChunks
-print totalChunks
-
-print "Determining chunk relevance..."
+if options.verbose: print totalChunks, "chunks to process."
+if not options.quiet: print "Determining chunk relevance..."
 starttimeChunkRelevance = time.time()
 for pos in allChunks:
     
@@ -254,9 +298,15 @@ for pos in allChunks:
         print pos, "was in chunkRelevance."
     
     # Status report, griff!
-    if chunksProcessed % 64 == 0:
-        curtime = time.time()
-        print 100 * float(chunksProcessed) / float(totalChunks), "% complete,", str( curtime - starttime )
+    if not options.quiet and chunksProcessed % options.chunksToReportAfter == 0:
+        elapsed  = time.time() - starttime
+        percent = 100 * float(chunksProcessed) / float(totalChunks)
+        predicted = (elapsed) * float(totalChunks) / float( max(chunksProcessed, 1) )
+        remaining = predicted - elapsed
+        if options.verbose:
+            print '%.2f%% chunks processed (%d chunks); %ds elapsed, %ds remaining (%d predicted)' % ( percent, chunksProcessed, elapsed , remaining, predicted )
+        else:
+            print '%.2f%% chunks processed' % ( percent )
     
     chunksProcessed += 1
     
@@ -264,23 +314,24 @@ for pos in allChunks:
     assert( not chunk.dirty )
     chunk.unload() 
     assert( not chunk.isLoaded() )
-    if chunksProcessed % chunksToCleanUpAfter == 0:
-        print "Cleaning memory..."
+    if chunksProcessed % options.chunksToCleanUpAfter == 0:
+        if options.verbose: print "Cleaning memory..."
         dim.close()
         dim.preloadChunkPositions()
      
 curtime = time.time()
-print "Chunk relevance took", str( curtime - starttimeChunkRelevance ), "s."
-print "Chunk relevance complete. Processed", chunksProcessed, "chunks."
+if options.verbose: print "Chunk relevance took", str( curtime - starttimeChunkRelevance ), "s."
+if options.verbose: print "Chunk relevance complete. Processed", chunksProcessed, "chunks."
 
 chunksProcessed = 0
 # delete irrelevant chunks
+if not options.quiet: print "Deleting chunks..."
 for pos, relevant in chunkRelevance.items():
     if not relevant:
         # are there any relevant chunks in the radius?
         radiusRelevant = False
-        for x in xrange( pos[0] - radius, pos[0] + radius + 1 ):
-            for z in xrange( pos[1] - radius, pos[1] + radius + 1):
+        for x in xrange( pos[0] - options.radius, pos[0] + options.radius + 1 ):
+            for z in xrange( pos[1] - options.radius, pos[1] + options.radius + 1):
                 if (x,z) in chunkRelevance:
                     if chunkRelevance[(x,z)] == True:
                         radiusRelevant = True
@@ -291,20 +342,26 @@ for pos, relevant in chunkRelevance.items():
             chunksProcessed += 1
         
             # status report
-            if chunksProcessed % 64 == 0:
-                curtime = time.time()
-                print 100 * float(chunksProcessed) / float(totalChunks), "% deleted,", str( curtime - starttime )
+            if not options.quiet and chunksProcessed % options.chunksToReportAfter == 0:
+                elapsed  = time.time() - starttime
+                percent = 100 * float(chunksProcessed) / float(totalChunks)
+                if options.verbose:
+                    print '%.2f%% chunks deleted (%d chunks); %ds elapsed' % ( percent, chunksProcessed, elapsed )
+                else:
+                    print '%.2f%% chunks deleted' % ( percent )
+                    
 
             # Clean the dimension of unused memory
-            if chunksProcessed % chunksToCleanUpAfter == 0:
-                print "Cleaning memory..."
+            if chunksProcessed % options.chunksToCleanUpAfter == 0:
+                if options.verbose: print "Cleaning memory..."
                 saveDim()        
                 dim.close() 
                 preloadChunkPositions()
 
-print "Chunk Deletion complete. Deleted", chunksProcessed, "chunks (", 100 * float(chunksProcessed) / float(totalChunks), "% )"
+if not options.quiet: print "Chunk Deletion complete."
+if options.verbose: print "Deleted", chunksProcessed, "chunks (", 100 * float(chunksProcessed) / float(totalChunks), "% )"
 
-# save the world
-dim.saveInPlace()
+# you saved the world!
+saveDim()
 endtime = time.time()
-print 'worldcleaner took %0.3f s' % ((endtime-starttime))
+print "worldcleaner took %ds" % (endtime-starttime)
