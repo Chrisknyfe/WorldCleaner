@@ -327,12 +327,16 @@ totalChunks = len( allChunks )
 chunkRelevance = loadRelevance()
 
 # Catch ctrl + c, save our chunk relevance
-def sigint_handler(signal, frame):
-    if not options.quiet: print "Script prematurely terminated, saving relevance..."
+def save_and_quit():
     dim.close()
     world.close()
     saveRelevance( chunkRelevance )
-    exit(0)
+    exit(1)
+    
+def sigint_handler(signal, frame):
+    if not options.quiet: print "Script prematurely terminated, saving relevance..."
+    save_and_quit()
+    
 signal.signal(signal.SIGINT, sigint_handler)
 
 chunksProcessed = 0
@@ -346,7 +350,12 @@ for pos in allChunks:
     
     # only process the chunk if we haven't looked at it.
     if pos not in chunkRelevance:
-        chunk = dim.getChunk( pos[0], pos[1] )
+        try:
+            chunk = dim.getChunk( pos[0], pos[1] )
+        except pymclevel.mclevelbase.ChunkMalformed:
+            print "Ran out of memory while trying to process chunk! Use -c or --cleanup-interval to lower the amount of memory used!"
+            save_and_quit()
+            
         chunkRelevance[pos] = isChunkRelevant( chunk )
         chunksDeepSearched += 1
         
@@ -421,6 +430,7 @@ if options.verbose: print "Deleted", chunksProcessed, "chunks (", 100 * float(ch
 
 # you saved the world!
 saveDim()
+dim.close()
 saveRelevance( chunkRelevance )
 endtime = time.time()
 if not options.quiet: print "worldcleaner took %ds" % (endtime-starttime)
