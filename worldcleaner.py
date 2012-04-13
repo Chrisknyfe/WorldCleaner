@@ -139,7 +139,11 @@ mineshaftBlocks = set([ mats.Rail.ID,
                         mats.Chest.ID,
                         mats.Fence.ID,
                         mats.WoodenStairs.ID,
-                        mats.Obsidian.ID ]) # because I want this to be relevant only if it's on the surface.
+                        mats.MonsterSpawner.ID, # mineshafts and dungeons
+                        mats.Web.ID,
+                        mats.Obsidian.ID,     # for lava lakes that get hit by water
+                        mats.Cobblestone.ID,  # for dungeons
+                        mats.MossStone.ID ])  # for dungeons
                         
 # blocks that the nether is made of
 netherBlocks = set([ mats.Netherrack.ID, 
