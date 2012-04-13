@@ -39,6 +39,7 @@ if len(args) != 1:
     usageexit( "Please only specify one argument, the world name." )
     
 if options.quiet: options.verbose = False
+options.radius = int(options.radius)
 options.chunksToCleanUpAfter = int(options.chunksToCleanUpAfter)
 options.chunksToReportAfter = int(options.chunksToReportAfter)
 options.flatworldHeight = int(options.flatworldHeight)
@@ -141,6 +142,7 @@ mineshaftBlocks = set([ mats.Rail.ID,
                         mats.WoodenStairs.ID,
                         mats.MonsterSpawner.ID, # mineshafts and dungeons
                         mats.Web.ID,
+                        mats.Sandstone.ID,    # for underneath sand, but should be valid above sand.
                         mats.Obsidian.ID,     # for lava lakes that get hit by water
                         mats.Cobblestone.ID,  # for dungeons
                         mats.MossStone.ID ])  # for dungeons
