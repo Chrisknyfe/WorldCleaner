@@ -1,6 +1,6 @@
 ' Test stuff!
 
-GOTO:NYLL
+GOTO:NETHER
 
 :NYLL
 
@@ -39,7 +39,7 @@ GOTO:EOF
 ' the nether world
 rmdir /s /q survival_nether-copy
 xcopy /E /I survival_nether survival_nether-copy
-worldcleaner.py -v -t NETHER survival_nether-copy
+worldcleaner.py -v -t NETHER -d -1 survival_nether-copy
 
 GOTO:EOF
 :SURVIVAL

@@ -138,23 +138,46 @@ mineshaftBlocks = set([ mats.Rail.ID,
                         mats.Torch.ID,
                         mats.Chest.ID,
                         mats.Fence.ID,
-                        mats.WoodenStairs.ID ])
+                        mats.WoodenStairs.ID,
+                        mats.Obsidian.ID ]) # because I want this to be relevant only if it's on the surface.
                         
 # blocks that the nether is made of
-netherBlocks = set([ mats.Netherrack.ID ])                        
+netherBlocks = set([ mats.Netherrack.ID, 
+                     mats.SoulSand.ID,
+                     mats.Glowstone.ID,
+                     mats.NetherBrick.ID,
+                     mats.NetherBrickFence.ID,
+                     mats.NetherBrickStairs.ID,
+                     ])
+
+# blocks that appear naturally in the nether, but shouldn't ever be relevant.
+netherNaturalBlocks = set([ mats.Lava.ID,
+                            mats.LavaActive.ID,
+                            mats.Fire.ID,
+                            mats.Gravel.ID,
+                            mats.BrownMushroom.ID,
+                            mats.RedMushroom.ID,
+                            mats.NetherWart.ID,
+                            mats.MonsterSpawner.ID ])                    
                         
 # blocks that flatworlds are made of (set of non-relevant blocks.)
-flatworldBlocks = set([ mats.Air.ID,
-                        mats.Grass.ID,
+flatworldBlocks = set([ mats.Grass.ID,
                         mats.Dirt.ID,
-                        mats.Stone.ID,
-                        mats.Bedrock.ID ])
+                        mats.Stone.ID ])
 
 # Relevant blocks to survival, excluding mineshafts.
+airAndBedrock = set([ mats.Air.ID,
+                      mats.Bedrock.ID ])
 relevantBlocksSurvival = relevantBlocks | netherBlocks
 
 # All of these blocks should be relevant above mineshaft level.
 relevantBlocksIncludingMineshafts = relevantBlocksSurvival | mineshaftBlocks
+
+irrelevantFlatworldBlocks = airAndBedrock | flatworldBlocks
+
+irrelevantNetherBlocks = airAndBedrock | netherBlocks | netherNaturalBlocks
+
+irrelevantNetherNaturalBlocks = airAndBedrock | netherNaturalBlocks
 
                         
 
@@ -189,7 +212,7 @@ def isChunkRelevantSuperflat ( chunk ):
             return True
     # check for relevant blocks below the generator's height
     for voxel in chunk.Blocks[ :, :, 0:options.flatworldHeight ].flat:
-        if voxel not in flatworldBlocks: 
+        if voxel not in irrelevantFlatworldBlocks: 
             return True
     return False
     
@@ -215,8 +238,20 @@ def isChunkRelevantSpaceworld ( chunk ):
     return False
     
 # For the Nether
-def isChunkRelevantNether ( chunk ):
-    raise NotImplementedError("Nether cleaning has not been implemented yet!");
+def isChunkRelevantNether ( chunk ):    
+    # keep anything above chunk generator's max height
+    for height in chunk.HeightMap.flat:
+        if height > chunkgenHeight + 1:
+            return True
+    # except for blocks right on top of bedrock (filter for mushrooms on bedrock)
+    for voxel in chunk.Blocks[ :, :, chunkgenHeight ].flat:
+        if voxel not in irrelevantNetherNaturalBlocks:
+            return True
+    for voxel in chunk.Blocks[ :, :, 0:chunkgenHeight ].flat:
+        if voxel not in irrelevantNetherBlocks: 
+            return True
+    return False
+    
     
 # For a custom terrain generator. Insert your own code here!
 def isChunkRelevantCustom ( chunk ):
